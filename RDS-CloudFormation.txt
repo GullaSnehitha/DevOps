@@ -1,0 +1,93 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: PostgreSQL RDS with t3.micro (parameterized), security group, subnet group, and monitoring
+
+Parameters:
+  DBPassword:
+    Type: String
+    NoEcho: true
+    Description: RDS Master Password
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC for RDS
+
+  Subnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First subnet for RDS subnet group
+
+  Subnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second subnet for RDS subnet group
+
+  DBInstanceClass:
+    Type: String
+    Default: db.t3.micro
+    AllowedValues:
+      - db.t3.micro
+      - db.t3.small
+      - db.t3.medium
+      - db.t4g.micro
+      - db.m6g.large
+      - db.m5.large
+    Description: RDS instance type (must be compatible with PostgreSQL 15.8)
+
+Resources:
+
+  RDSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow PostgreSQL access
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 5432
+          ToPort: 5432
+          CidrIp: 0.0.0.0/0
+
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet group for RDS
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+
+  MonitoringRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: rds-monitoring-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: monitoring.rds.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonRDSEnhancedMonitoringRole
+
+  PostgreSQLInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: evoke-uat
+      DBName: evokeuat
+      Engine: postgres
+      EngineVersion: 15.8
+      MasterUsername: postgres
+      MasterUserPassword: !Ref DBPassword
+      DBInstanceClass: !Ref DBInstanceClass
+      AllocatedStorage: 200
+      StorageType: gp2
+      PubliclyAccessible: true
+      MultiAZ: false
+      BackupRetentionPeriod: 7
+      MonitoringInterval: 60
+      MonitoringRoleArn: !GetAtt MonitoringRole.Arn
+      VPCSecurityGroups:
+        - !Ref RDSSecurityGroup
+      DBSubnetGroupName: !Ref DBSubnetGroup
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: PostgreSQL Endpoint
+    Value: !GetAtt PostgreSQLInstance.Endpoint.Address
